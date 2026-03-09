@@ -1,127 +1,15 @@
-from fastapi import FastAPI, File, UploadFile
+from __future__ import annotations
+
+import os
+
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
+from .ark_client import build_ark_client
+from .pdf_parser import PDFParseError, extract_pdf_text
+from .summarizer import summarize_pdf_text
 
-HARDCODED_INDICATORS = [
-    {
-        "id": "hba1c",
-        "name": "HbA1c",
-        "category": "Lab Results",
-        "value": "6.8",
-        "unit": "%",
-        "referenceRange": "4.0-5.6",
-        "status": "high",
-    },
-    {
-        "id": "fasting_glucose",
-        "name": "Fasting Glucose",
-        "category": "Lab Results",
-        "value": "126",
-        "unit": "mg/dL",
-        "referenceRange": "70-99",
-        "status": "high",
-    },
-    {
-        "id": "ldl",
-        "name": "LDL Cholesterol",
-        "category": "Lab Results",
-        "value": "142",
-        "unit": "mg/dL",
-        "referenceRange": "<100",
-        "status": "high",
-    },
-    {
-        "id": "hdl",
-        "name": "HDL Cholesterol",
-        "category": "Lab Results",
-        "value": "48",
-        "unit": "mg/dL",
-        "referenceRange": ">40",
-        "status": "normal",
-    },
-    {
-        "id": "triglycerides",
-        "name": "Triglycerides",
-        "category": "Lab Results",
-        "value": "175",
-        "unit": "mg/dL",
-        "referenceRange": "<150",
-        "status": "high",
-    },
-    {
-        "id": "hemoglobin",
-        "name": "Hemoglobin",
-        "category": "Lab Results",
-        "value": "13.4",
-        "unit": "g/dL",
-        "referenceRange": "12.0-16.0",
-        "status": "normal",
-    },
-    {
-        "id": "platelet_count",
-        "name": "Platelet Count",
-        "category": "Lab Results",
-        "value": "248",
-        "unit": "10^3/uL",
-        "referenceRange": "150-450",
-        "status": "normal",
-    },
-    {
-        "id": "creatinine",
-        "name": "Creatinine",
-        "category": "Lab Results",
-        "value": "0.94",
-        "unit": "mg/dL",
-        "referenceRange": "0.6-1.3",
-        "status": "normal",
-    },
-    {
-        "id": "blood_pressure",
-        "name": "Blood Pressure",
-        "category": "Vitals",
-        "value": "128/82",
-        "unit": "mmHg",
-        "referenceRange": "<120/80",
-        "status": "borderline",
-    },
-    {
-        "id": "heart_rate",
-        "name": "Heart Rate",
-        "category": "Vitals",
-        "value": "76",
-        "unit": "bpm",
-        "referenceRange": "60-100",
-        "status": "normal",
-    },
-    {
-        "id": "bmi",
-        "name": "BMI",
-        "category": "Vitals",
-        "value": "27.1",
-        "unit": "kg/m2",
-        "referenceRange": "18.5-24.9",
-        "status": "high",
-    },
-    {
-        "id": "condition_t2d",
-        "name": "Type 2 Diabetes",
-        "category": "Conditions & Diagnoses",
-        "value": "Confirmed",
-        "unit": "",
-        "referenceRange": "",
-        "status": "active",
-    },
-    {
-        "id": "med_metformin",
-        "name": "Metformin",
-        "category": "Medications",
-        "value": "500 mg daily",
-        "unit": "",
-        "referenceRange": "",
-        "status": "active",
-    },
-]
-
+MAX_FILE_SIZE = 20 * 1024 * 1024  # 20MB
 
 app = FastAPI(
     title="vital-key-chain server",
@@ -148,10 +36,39 @@ def health_check() -> dict[str, str]:
 
 
 @app.post("/api/health/parse")
-async def parse_health_file(file: UploadFile = File(...)) -> dict:
-    return {
-        "fileName": file.filename,
-        "contentType": file.content_type,
-        "indicatorCount": len(HARDCODED_INDICATORS),
-        "indicators": HARDCODED_INDICATORS,
-    }
+async def parse_health_file(file: UploadFile = File(...)) -> dict[str, object]:
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No filename detected.")
+
+    if not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only .pdf files are supported.")
+
+    pdf_bytes = await file.read()
+    if len(pdf_bytes) == 0:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+    if len(pdf_bytes) > MAX_FILE_SIZE:
+        raise HTTPException(status_code=413, detail="File too large. Maximum size is 20MB.")
+
+    try:
+        text, page_count = extract_pdf_text(pdf_bytes)
+    except PDFParseError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    try:
+        client = build_ark_client()
+    except ValueError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    try:
+        result = summarize_pdf_text(client, text, filename=file.filename)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"AI analysis failed: {exc}") from exc
+
+    meta = result.get("meta")
+    if isinstance(meta, dict):
+        meta["page_count"] = page_count
+        meta["filename"] = file.filename
+        meta["max_file_size_mb"] = MAX_FILE_SIZE // (1024 * 1024)
+        meta["ark_base_url"] = os.getenv("ARK_BASE_URL", "https://api.tu-zi.com/v1")
+
+    return result
