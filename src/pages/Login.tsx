@@ -1,10 +1,55 @@
-import { Link } from "react-router-dom";
+import { useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Activity, ArrowRight, Wallet } from "lucide-react";
+import { Activity, ArrowRight, Wallet, Loader2, AlertCircle } from "lucide-react";
+import { useWallet } from "@/hooks/use-wallet";
+import { toast } from "sonner";
 
 export default function Login() {
+  const navigate = useNavigate();
+  const { connect, signMessage, isConnecting, isWalletAvailable, error } = useWallet();
+  const [isAuthenticating, setIsAuthenticating] = useState(false);
+
+  const handleWalletLogin = async () => {
+    if (!isWalletAvailable) {
+      toast.error("请安装 MetaMask 或其他以太坊钱包");
+      window.open("https://metamask.io/download/", "_blank");
+      return;
+    }
+
+    const address = await connect();
+    if (!address) return;
+
+    setIsAuthenticating(true);
+    
+    try {
+      // Create a sign-in message with timestamp for security
+      const timestamp = Date.now();
+      const message = `HealthVault Sign In\n\nWallet: ${address}\nTimestamp: ${timestamp}\n\nBy signing this message, you confirm that you own this wallet address.`;
+      
+      const signature = await signMessage(message);
+      
+      if (signature) {
+        // Store auth info
+        localStorage.setItem("auth_address", address);
+        localStorage.setItem("auth_timestamp", timestamp.toString());
+        localStorage.setItem("auth_signature", signature);
+        
+        toast.success("钱包登录成功！");
+        navigate("/dashboard");
+      }
+    } catch (err) {
+      console.error("Authentication failed:", err);
+      toast.error("认证失败，请重试");
+    } finally {
+      setIsAuthenticating(false);
+    }
+  };
+
+  const isLoading = isConnecting || isAuthenticating;
+
   return (
     <div className="min-h-screen bg-background flex">
       {/* Left panel */}
@@ -67,10 +112,31 @@ export default function Login() {
               <div className="relative flex justify-center text-xs text-muted-foreground bg-background px-2">or</div>
             </div>
 
-            <Button variant="outline" className="w-full h-11 gap-2">
-              <Wallet className="w-4 h-4" />
-              Connect Wallet to Sign In
+            <Button 
+              variant="outline" 
+              className="w-full h-11 gap-2"
+              onClick={handleWalletLogin}
+              disabled={isLoading}
+            >
+              {isLoading ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  {isConnecting ? "连接钱包中..." : "认证中..."}
+                </>
+              ) : (
+                <>
+                  <Wallet className="w-4 h-4" />
+                  Connect Wallet to Sign In
+                </>
+              )}
             </Button>
+
+            {error && (
+              <div className="flex items-center gap-2 text-sm text-destructive">
+                <AlertCircle className="w-4 h-4" />
+                {error}
+              </div>
+            )}
           </div>
 
           <p className="text-center text-sm text-muted-foreground mt-6">

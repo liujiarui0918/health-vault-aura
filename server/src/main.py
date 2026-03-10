@@ -4,12 +4,42 @@ import os
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
 
 from .ark_client import build_ark_client
 from .pdf_parser import PDFParseError, extract_pdf_text
 from .summarizer import summarize_pdf_text
 
 MAX_FILE_SIZE = 20 * 1024 * 1024  # 20MB
+
+
+class ParsedIndicator(BaseModel):
+    id: str
+    name: str
+    category: str
+    value: str
+    unit: str
+    referenceRange: str
+    status: str
+    instrument: str = ""
+
+
+class ParseMeta(BaseModel):
+    model: str = ""
+    char_count: int = 0
+    chunk_count: int = 0
+    page_count: int = 0
+    filename: str = ""
+    max_file_size_mb: int = 0
+    ark_base_url: str = ""
+
+
+class ParseHealthFileResponse(BaseModel):
+    fileName: str
+    contentType: str
+    indicatorCount: int = Field(ge=0)
+    indicators: list[ParsedIndicator]
+    meta: ParseMeta
 
 app = FastAPI(
     title="vital-key-chain server",
@@ -35,8 +65,8 @@ def health_check() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.post("/api/health/parse")
-async def parse_health_file(file: UploadFile = File(...)) -> dict[str, object]:
+@app.post("/api/health/parse", response_model=ParseHealthFileResponse)
+async def parse_health_file(file: UploadFile = File(...)) -> ParseHealthFileResponse:
     if not file.filename:
         raise HTTPException(status_code=400, detail="No filename detected.")
 
@@ -71,4 +101,4 @@ async def parse_health_file(file: UploadFile = File(...)) -> dict[str, object]:
         meta["max_file_size_mb"] = MAX_FILE_SIZE // (1024 * 1024)
         meta["ark_base_url"] = os.getenv("ARK_BASE_URL", "https://api.tu-zi.com/v1")
 
-    return result
+    return ParseHealthFileResponse.model_validate(result)

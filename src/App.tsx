@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { WalletProvider } from "@/contexts/WalletContext";
 
 // Public pages
 import Landing from "./pages/Landing";
@@ -18,6 +19,7 @@ import Signup from "./pages/Signup";
 // User pages
 import Dashboard from "./pages/Dashboard";
 import HealthDataUpload from "./pages/HealthDataUpload";
+import HealthDataOnchain from "./pages/HealthDataOnchain";
 import Timeline from "./pages/Timeline";
 import SearchProfiles from "./pages/SearchProfiles";
 import Messages from "./pages/Messages";
@@ -38,11 +40,12 @@ const queryClient = new QueryClient();
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
-    <TooltipProvider>
-      <Toaster />
-      <Sonner />
-      <BrowserRouter>
-        <Routes>
+    <WalletProvider>
+      <TooltipProvider>
+        <Toaster />
+        <Sonner />
+        <BrowserRouter>
+          <Routes>
           {/* Public */}
           <Route path="/" element={<Landing />} />
           <Route path="/privacy" element={<PrivacyExplainer />} />
@@ -57,6 +60,7 @@ const App = () => (
           {/* User App */}
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/health-data" element={<HealthDataUpload />} />
+          <Route path="/health-data/onchain" element={<HealthDataOnchain />} />
           <Route path="/timeline" element={<Timeline />} />
           <Route path="/search" element={<SearchProfiles />} />
           <Route path="/messages" element={<Messages />} />
@@ -75,6 +79,7 @@ const App = () => (
         </Routes>
       </BrowserRouter>
     </TooltipProvider>
+    </WalletProvider>
   </QueryClientProvider>
 );
 
