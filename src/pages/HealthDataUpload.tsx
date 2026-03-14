@@ -366,18 +366,6 @@ const formatApiError = async (response: Response, fallbackLabel: string) => {
   return `${fallbackLabel} failed with status ${response.status}`;
 };
 
-const detectLocalBackendDown = async () => {
-  if (typeof window === "undefined") return false;
-  if (!["localhost", "127.0.0.1"].includes(window.location.hostname)) return false;
-
-  try {
-    const healthResponse = await fetch("http://127.0.0.1:8000/health", { method: "GET" });
-    return !healthResponse.ok;
-  } catch {
-    return true;
-  }
-};
-
 const downloadParsedJson = (data: ParseResponse) => {
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json;charset=utf-8" });
   const url = URL.createObjectURL(blob);
@@ -601,16 +589,7 @@ export default function HealthDataUpload() {
         });
 
         if (!apiResponse.ok) {
-          let fallbackError = await formatApiError(apiResponse, "Local API");
-          if (
-            apiResponse.status >= 500 &&
-            fallbackError === `Local API failed with status ${apiResponse.status}` &&
-            (await detectLocalBackendDown())
-          ) {
-            fallbackError =
-              "Local API is unavailable. Start FastAPI on http://127.0.0.1:8000 (Python runtime is required) or configure VITE_SUPABASE_URL for edge parsing.";
-          }
-
+          const fallbackError = await formatApiError(apiResponse, "Local API");
           const edgeHint = edgeErrors.length ? ` Edge attempts: ${edgeErrors.join(" | ")}` : "";
           throw new Error(`${fallbackError}.${edgeHint}`);
         }
