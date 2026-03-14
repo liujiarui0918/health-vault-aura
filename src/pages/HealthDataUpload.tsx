@@ -104,23 +104,71 @@ const emptyStateHighlights = [
 ];
 
 const manualFields = [
-  { id: "height", name: "Height", category: "Vitals", unit: "cm", ref: "" },
-  { id: "weight", name: "Weight", category: "Vitals", unit: "kg", ref: "" },
-  { id: "sys_bp", name: "Systolic BP", category: "Vitals", unit: "mmHg", ref: "90-120" },
-  { id: "dia_bp", name: "Diastolic BP", category: "Vitals", unit: "mmHg", ref: "60-80" },
-  { id: "heart_rate", name: "Heart Rate", category: "Vitals", unit: "bpm", ref: "60-100" },
-  { id: "wbc", name: "White Blood Cell", category: "Lab Results", unit: "10^9/L", ref: "3.5-9.5" },
-  { id: "hb", name: "Hemoglobin", category: "Lab Results", unit: "g/L", ref: "130-175" },
-  { id: "fbg", name: "Fasting Blood Glucose", category: "Lab Results", unit: "mmol/L", ref: "3.9-6.1" },
-  { id: "alt", name: "ALT (Alanine Aminotransferase)", category: "Lab Results", unit: "U/L", ref: "7-40" },
-  { id: "ast", name: "AST (Aspartate Aminotransferase)", category: "Lab Results", unit: "U/L", ref: "13-35" },
+  { id: "height", name: "身高", category: "Vitals", unit: "cm", ref: "" },
+  { id: "weight", name: "体重", category: "Vitals", unit: "Kg", ref: "" },
+  { id: "body_mass_index", name: "体重指数", category: "Vitals", unit: "", ref: "18.50-23.99" },
+  { id: "systolic_blood_pressure", name: "收缩压", category: "Vitals", unit: "mmHg", ref: "90-139" },
+  { id: "diastolic_blood_pressure", name: "舒张压", category: "Vitals", unit: "mmHg", ref: "60-89" },
+  { id: "heart_rate", name: "心率（次/分）", category: "Vitals", unit: "次/分", ref: "" },
+  { id: "white_blood_cell_count", name: "白细胞计数", category: "Lab Results", unit: "×10^9/L", ref: "3.5-9.5" },
+  { id: "red_blood_cell_count", name: "红细胞计数", category: "Lab Results", unit: "10^12/L", ref: "3.8-5.1" },
+  { id: "hemoglobin", name: "血红蛋白", category: "Lab Results", unit: "g/L", ref: "115-150" },
+  { id: "hematocrit", name: "红细胞压积", category: "Lab Results", unit: "L/L", ref: "0.35-0.45" },
+  { id: "mean_corpuscular_volume", name: "平均红细胞体积", category: "Lab Results", unit: "fL", ref: "82-100" },
+  { id: "mean_corpuscular_hemoglobin_content", name: "平均红细胞血红蛋白含量", category: "Lab Results", unit: "pg", ref: "27-34" },
+  { id: "mean_corpuscular_hemoglobin_concentration", name: "平均红细胞血红蛋白浓度", category: "Lab Results", unit: "g/L", ref: "316-354" },
+  { id: "red_cell_distribution_width_coefficient_of_variation", name: "红细胞分布宽度-变异系数", category: "Lab Results", unit: "%", ref: "11-16" },
+  { id: "platelet_count", name: "血小板计数", category: "Lab Results", unit: "10^9/L", ref: "125-350" },
+  { id: "mean_platelet_volume", name: "平均血小板体积", category: "Lab Results", unit: "fL", ref: "9-16" },
+  { id: "platelet_distribution_width", name: "血小板分布宽度", category: "Lab Results", unit: "fL", ref: "8.00-20.00" },
+  { id: "lymphocyte_percentage", name: "淋巴细胞百分比", category: "Lab Results", unit: "%", ref: "20-50" },
+  { id: "neutrophil_percentage", name: "中性粒细胞百分比", category: "Lab Results", unit: "%", ref: "40-75" },
+  { id: "lymphocyte_absolute", name: "淋巴细胞绝对值", category: "Lab Results", unit: "10^9/L", ref: "1.1-3.2" },
+  { id: "neutrophil_absolute", name: "中性粒细胞绝对值", category: "Lab Results", unit: "10^9/L", ref: "1.8-6.3" },
+  { id: "red_cell_distribution_width_standard_deviation", name: "红细胞分布宽度-标准差", category: "Lab Results", unit: "fL", ref: "35-54" },
+  { id: "platelet_crit", name: "血小板压积", category: "Lab Results", unit: "%", ref: "0.108-0.330" },
+  { id: "monocyte_percentage", name: "单核细胞百分比", category: "Lab Results", unit: "%", ref: "3-10" },
+  { id: "monocyte_absolute", name: "单核细胞绝对值", category: "Lab Results", unit: "10^9/L", ref: "0.1-0.6" },
+  { id: "eosinophil_percentage", name: "嗜酸性细胞百分比", category: "Lab Results", unit: "%", ref: "0.4-8.0" },
+  { id: "eosinophil_absolute", name: "嗜酸性细胞绝对值", category: "Lab Results", unit: "10^9/L", ref: "0.02-0.52" },
+  { id: "basophil_percentage", name: "嗜碱性细胞百分比", category: "Lab Results", unit: "%", ref: "0-1" },
+  { id: "basophil_absolute", name: "嗜碱性细胞绝对值", category: "Lab Results", unit: "10^9/L", ref: "0-0.06" },
+  { id: "urine_specific_gravity", name: "尿比重", category: "Lab Results", unit: "", ref: "1.003-1.030" },
+  { id: "urine_ph", name: "尿酸碱度", category: "Lab Results", unit: "", ref: "4.5-8.0" },
+  { id: "urine_leukocytes", name: "尿白细胞", category: "Lab Results", unit: "", ref: "阴性" },
+  { id: "urine_nitrite", name: "尿亚硝酸盐", category: "Lab Results", unit: "", ref: "阴性" },
+  { id: "urine_protein", name: "尿蛋白质", category: "Lab Results", unit: "", ref: "阴性" },
+  { id: "urine_glucose", name: "尿糖", category: "Lab Results", unit: "", ref: "阴性" },
+  { id: "urine_ketone_bodies", name: "尿酮体", category: "Lab Results", unit: "", ref: "阴性" },
+  { id: "urine_urobilinogen", name: "尿胆原", category: "Lab Results", unit: "", ref: "阴性" },
+  { id: "urine_bilirubin", name: "尿胆红素", category: "Lab Results", unit: "", ref: "阴性" },
+  { id: "urine_occult_blood", name: "尿隐血", category: "Lab Results", unit: "", ref: "阴性" },
+  { id: "urine_red_blood_cells", name: "尿镜检红细胞", category: "Lab Results", unit: "/HP", ref: "0-3" },
+  { id: "urine_white_blood_cells", name: "尿镜检白细胞", category: "Lab Results", unit: "/HP", ref: "0-5" },
+  { id: "urine_casts", name: "管型", category: "Lab Results", unit: "", ref: "" },
+  { id: "alanine_aminotransferase", name: "丙氨酸氨基转移酶", category: "Lab Results", unit: "U/L", ref: "0-40" },
+  { id: "aspartate_aminotransferase", name: "天门冬氨酸氨基转移酶", category: "Lab Results", unit: "U/L", ref: "13-35" },
+  { id: "gamma_glutamyl_transferase", name: "γ-谷氨酰转移酶", category: "Lab Results", unit: "U/L", ref: "7-45" },
 ];
 
-const checkStatus = (val: number, ref: string) => {
-  if (!ref) return "normal";
-  const [min, max] = ref.split("-").map(Number);
-  if (val < min) return "low";
-  if (val > max) return "high";
+const checkStatus = (val: string, ref: string) => {
+  if (!ref || !val) return "normal";
+  
+  if (ref === "阴性") {
+    return val === "阴性" || val.toLowerCase() === "negative" || val === "-" ? "normal" : "abnormal";
+  }
+  
+  const numVal = parseFloat(val);
+  if (isNaN(numVal)) return "abnormal"; // Non-numeric answer to a numeric reference is generally abnormal tracking
+
+  if (ref.includes("-")) {
+    const [minStr, maxStr] = ref.split("-");
+    const min = parseFloat(minStr);
+    const max = parseFloat(maxStr);
+    if (!isNaN(min) && numVal < min) return "low";
+    if (!isNaN(max) && numVal > max) return "high";
+  }
+  
   return "normal";
 };
 
@@ -360,7 +408,7 @@ export default function HealthDataUpload() {
           category: field.category,
           unit: field.unit,
           referenceRange: field.ref || "",
-          status: isNaN(valNum) ? "normal" : checkStatus(valNum, field.ref),
+          status: checkStatus(valStr.trim(), field.ref),
           value: valStr.trim(),
           instrument: "Manual Entry"
         });
@@ -580,15 +628,19 @@ export default function HealthDataUpload() {
                           </div>
                           <div className="relative">
                             <input 
-                              type="number" 
+                              type="text" 
                               className="block w-full rounded-lg border border-white/10 bg-white/5 py-1.5 pl-3 pr-8 text-white placeholder:text-white/30 sm:text-sm sm:leading-6 focus:ring-1 focus:ring-primary focus:border-primary focus:bg-white/10 transition-colors" 
-                              placeholder="0.0" 
+                              placeholder={field.ref === "阴性" ? "阴性/阳性" : "0.0"} 
                               value={manualData[field.id] || ""} 
                               onChange={(e) => setManualData({...manualData, [field.id]: e.target.value})} 
                             />
-                            <div className="absolute inset-y-0 right-0 flex items-center pr-2 pointer-events-none">
-                              <span className="text-white/40 text-[10px] uppercase">{field.unit.split('/')[0]}</span>
-                            </div>
+                            {field.unit && (
+                              <div className="absolute inset-y-0 right-0 flex items-center pr-2 pointer-events-none">
+                                <span className="text-white/40 text-[10px] uppercase truncate max-w-[40px]" title={field.unit}>
+                                  {field.unit}
+                                </span>
+                              </div>
+                            )}
                           </div>
                         </div>
                       ))}
