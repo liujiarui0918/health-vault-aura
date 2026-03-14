@@ -194,6 +194,22 @@ const resolveParseFunctionUrl = () => {
   return "/functions/v1/parse-health-report";
 };
 
+const getEdgeFunctionUrls = () => {
+  const urls: string[] = [];
+  const configuredUrl = resolveParseFunctionUrl();
+  urls.push(configuredUrl);
+
+  // Local Supabase default for dev without env configuration.
+  if (typeof window !== "undefined" && ["localhost", "127.0.0.1"].includes(window.location.hostname)) {
+    urls.push("http://127.0.0.1:54321/functions/v1/parse-health-report");
+  }
+
+  return Array.from(new Set(urls));
+};
+
+const apiBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim() ?? "";
+const buildApiUrl = (path: string) => (apiBaseUrl ? `${trimTrailingSlash(apiBaseUrl)}${path}` : path);
+
 const formatStatus = (status: string) => (status ? status.toUpperCase() : "UNKNOWN");
 
 const formatDate = (iso: string) =>
@@ -336,6 +352,18 @@ const normalizeParseResponse = (payload: unknown, fallbackFileName: string): Par
       ark_base_url: readString(metaRecord, ["ark_base_url", "arkBaseUrl"]),
     },
   };
+};
+
+const formatApiError = async (response: Response, fallbackLabel: string) => {
+  try {
+    const data = (await response.json()) as { detail?: string; error?: string };
+    if (data.detail) return data.detail;
+    if (data.error) return data.error;
+  } catch {
+    // Ignore JSON parsing errors and fall back to status text.
+  }
+
+  return `${fallbackLabel} failed with status ${response.status}`;
 };
 
 const downloadParsedJson = (data: ParseResponse) => {
@@ -495,9 +523,8 @@ export default function HealthDataUpload() {
       // Safeguard against insanely large extraction
       const textChunk = fullText.slice(0, 30000);
 
-      // 2. Send extracted text to Supabase Edge Function.
+      // 2. Prefer Supabase Edge Function; fallback to local FastAPI endpoint for local dev.
       const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim() || "";
-      const functionUrl = resolveParseFunctionUrl();
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
       };
@@ -507,43 +534,75 @@ export default function HealthDataUpload() {
         headers.apikey = supabaseAnonKey;
       }
 
-      const aiResponse = await fetch(functionUrl, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          textChunk,
-          fileName: file.name
-        })
-      });
+      let data: ParseResponse | null = null;
+      const edgeErrors: string[] = [];
 
-      if (!aiResponse.ok) {
-        let errMessage = `Edge function failed with status ${aiResponse.status}`;
+      for (const functionUrl of getEdgeFunctionUrls()) {
         try {
-          const errData = await aiResponse.json();
-          errMessage = errData.error || errMessage;
-        } catch {
-           // fallback to status text if non-JSON error
+          const aiResponse = await fetch(functionUrl, {
+            method: "POST",
+            headers,
+            body: JSON.stringify({
+              textChunk,
+              fileName: file.name,
+            }),
+          });
+
+          if (!aiResponse.ok) {
+            edgeErrors.push(await formatApiError(aiResponse, "Edge function"));
+            continue;
+          }
+
+          const { responseText, model, baseURL, error } = await aiResponse.json();
+          if (error) {
+            edgeErrors.push(String(error));
+            continue;
+          }
+
+          data = normalizeParseResponse(extractResponsePayload(responseText), file.name);
+          data.meta = {
+            model: model || "unknown",
+            char_count: fullText.length,
+            chunk_count: 1,
+            page_count: pdf.numPages,
+            filename: file.name,
+            max_file_size_mb: 20,
+            ark_base_url: baseURL || "proxy",
+          };
+          break;
+        } catch (edgeError) {
+          if (edgeError instanceof Error) {
+            edgeErrors.push(edgeError.message);
+          } else {
+            edgeErrors.push("Edge function request failed.");
+          }
         }
-        throw new Error(errMessage);
       }
 
-      const { responseText, model, baseURL, error } = await aiResponse.json();
-      if (error) {
-        throw new Error(error);
-      }
+      if (!data) {
+        const formData = new FormData();
+        formData.append("file", file);
 
-      const data = normalizeParseResponse(extractResponsePayload(responseText), file.name);
-      
-      // Patch meta to reflect the proxy parse
-      data.meta = {
-        model: model || "unknown",
-        char_count: fullText.length,
-        chunk_count: 1,
-        page_count: pdf.numPages,
-        filename: file.name,
-        max_file_size_mb: 20,
-        ark_base_url: baseURL || "proxy"
-      };
+        const apiResponse = await fetch(buildApiUrl("/api/health/parse"), {
+          method: "POST",
+          body: formData,
+        });
+
+        if (!apiResponse.ok) {
+          const fallbackError = await formatApiError(apiResponse, "Local API");
+          const edgeHint = edgeErrors.length ? ` Edge attempts: ${edgeErrors.join(" | ")}` : "";
+          throw new Error(`${fallbackError}.${edgeHint}`);
+        }
+
+        const apiPayload = await apiResponse.json();
+        data = normalizeParseResponse(apiPayload, file.name);
+        data.meta = {
+          ...data.meta,
+          page_count: data.meta.page_count || pdf.numPages,
+          filename: data.meta.filename || file.name,
+          max_file_size_mb: data.meta.max_file_size_mb || 20,
+        };
+      }
 
       setParsedData(data);
       setUploadHistory((current) => [
@@ -565,8 +624,7 @@ export default function HealthDataUpload() {
 
       let errorMessage = "Unable to parse the selected file.";
       if (error instanceof TypeError) {
-        errorMessage =
-          "Network request failed. In Lovable, configure VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY, or ensure /functions/v1/parse-health-report is routed to Supabase.";
+        errorMessage = "Network request failed. Please ensure Supabase Edge Function or local backend /api/health/parse is reachable.";
       } else if (error instanceof Error) {
         errorMessage = error.message;
       }
