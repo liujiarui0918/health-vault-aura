@@ -4,6 +4,8 @@ import os
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from .ark_client import build_ark_client
@@ -55,10 +57,6 @@ app.add_middleware(
 )
 
 
-@app.get("/")
-def read_root() -> dict[str, str]:
-    return {"message": "vital-key-chain server is running"}
-
 
 @app.get("/health")
 def health_check() -> dict[str, str]:
@@ -102,3 +100,28 @@ async def parse_health_file(file: UploadFile = File(...)) -> ParseHealthFileResp
         meta["ark_base_url"] = os.getenv("ARK_BASE_URL", "https://api.tu-zi.com/v1")
 
     return ParseHealthFileResponse.model_validate(result)
+
+# Mount frontend static files
+# Resolves to c:\Users\ljr-w\vital-key-chain\dist
+dist_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "dist"))
+
+if os.path.exists(dist_dir):
+    # Mount the assets directory (js, css, etc.)
+    assets_dir = os.path.join(dist_dir, "assets")
+    if os.path.exists(assets_dir):
+        app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+        
+    # Catch-all route to serve the SPA index.html for React Router
+    @app.get("/{full_path:path}")
+    async def serve_frontend(full_path: str):
+        file_path = os.path.join(dist_dir, full_path)
+        # Serve exact file if it exists and is not a directory
+        if os.path.exists(file_path) and os.path.isfile(file_path):
+            return FileResponse(file_path)
+        
+        # Otherwise fallback to index.html for client-side routing
+        index_path = os.path.join(dist_dir, "index.html")
+        if os.path.exists(index_path):
+            return FileResponse(index_path)
+            
+        raise HTTPException(status_code=404, detail="Page not found")
