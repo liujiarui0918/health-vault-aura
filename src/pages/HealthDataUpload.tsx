@@ -103,6 +103,27 @@ const emptyStateHighlights = [
   "Structured JSON is still available if you need it",
 ];
 
+const manualFields = [
+  { id: "height", name: "Height", category: "Vitals", unit: "cm", ref: "" },
+  { id: "weight", name: "Weight", category: "Vitals", unit: "kg", ref: "" },
+  { id: "sys_bp", name: "Systolic BP", category: "Vitals", unit: "mmHg", ref: "90-120" },
+  { id: "dia_bp", name: "Diastolic BP", category: "Vitals", unit: "mmHg", ref: "60-80" },
+  { id: "heart_rate", name: "Heart Rate", category: "Vitals", unit: "bpm", ref: "60-100" },
+  { id: "wbc", name: "White Blood Cell", category: "Lab Results", unit: "10^9/L", ref: "3.5-9.5" },
+  { id: "hb", name: "Hemoglobin", category: "Lab Results", unit: "g/L", ref: "130-175" },
+  { id: "fbg", name: "Fasting Blood Glucose", category: "Lab Results", unit: "mmol/L", ref: "3.9-6.1" },
+  { id: "alt", name: "ALT (Alanine Aminotransferase)", category: "Lab Results", unit: "U/L", ref: "7-40" },
+  { id: "ast", name: "AST (Aspartate Aminotransferase)", category: "Lab Results", unit: "U/L", ref: "13-35" },
+];
+
+const checkStatus = (val: number, ref: string) => {
+  if (!ref) return "normal";
+  const [min, max] = ref.split("-").map(Number);
+  if (val < min) return "low";
+  if (val > max) return "high";
+  return "normal";
+};
+
 const recentUploadPlaceholders = [
   { name: "Blood_Panel_March2025.pdf", date: "Mar 7, 2025", records: 12 },
   { name: "Annual_Checkup_Feb2025.pdf", date: "Feb 20, 2025", records: 9 },
@@ -288,6 +309,7 @@ export default function HealthDataUpload() {
   const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
   const [parsedData, setParsedData] = useState<ParseResponse | null>(null);
   const [uploadHistory, setUploadHistory] = useState<UploadHistoryItem[]>([]);
+  const [manualData, setManualData] = useState<Record<string, string>>({});
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const { toast } = useToast();
 
@@ -324,6 +346,72 @@ export default function HealthDataUpload() {
     if (!parsedData?.indicatorCount) return 0;
     return Math.round((normalIndicators / parsedData.indicatorCount) * 100);
   }, [normalIndicators, parsedData]);
+
+  const handleManualSubmit = () => {
+    const indicators: ParsedIndicator[] = [];
+    
+    manualFields.forEach(field => {
+      const valStr = manualData[field.id];
+      if (valStr && valStr.trim() !== "") {
+        const valNum = parseFloat(valStr);
+        indicators.push({
+          id: field.id,
+          name: field.name,
+          category: field.category,
+          unit: field.unit,
+          referenceRange: field.ref || "",
+          status: isNaN(valNum) ? "normal" : checkStatus(valNum, field.ref),
+          value: valStr.trim(),
+          instrument: "Manual Entry"
+        });
+      }
+    });
+
+    if (indicators.length === 0) {
+      toast({
+        title: "No data entered",
+        description: "Please enter at least one value to submit.",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    const manualFileName = "Manual_Entry_" + new Date().toISOString().split("T")[0] + ".json";
+    
+    const manualParsed: ParseResponse = {
+      fileName: manualFileName,
+      contentType: "application/json",
+      indicatorCount: indicators.length,
+      indicators,
+      meta: {
+        model: "manual-entry",
+        char_count: 0,
+        chunk_count: 0,
+        page_count: 1,
+        filename: manualFileName,
+        max_file_size_mb: 0,
+        ark_base_url: "local"
+      }
+    };
+
+    setParsedData(manualParsed);
+    setSelectedFileName(manualFileName);
+    
+    setUploadHistory((current) => [
+      {
+        fileName: manualFileName,
+        uploadedAt: new Date().toISOString(),
+        indicatorCount: manualParsed.indicatorCount,
+        parsedData: manualParsed,
+      },
+      ...current,
+    ]);
+
+    toast({
+      title: "Data submitted",
+      description: `${indicators.length} indicators were successfully saved.`,
+    });
+  };
 
   const uploadFile = async (file: File) => {
     if (!file.name.toLowerCase().endsWith(".pdf")) {
@@ -418,57 +506,106 @@ export default function HealthDataUpload() {
                 </p>
               </div>
 
-              <div
-                className={`rounded-2xl border border-white/12 bg-white/8 p-5 backdrop-blur transition-all ${dragging ? "border-primary bg-white/14" : "hover:bg-white/10"}`}
-                onDragOver={(event) => {
-                  event.preventDefault();
-                  setDragging(true);
-                }}
-                onDragLeave={() => setDragging(false)}
-                onDrop={handleDrop}
-              >
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  className="hidden"
-                  accept=".pdf,application/pdf"
-                  onChange={handleFileSelection}
-                />
+              <Tabs defaultValue="upload" className="w-full">
+                <TabsList className="mb-4 grid w-full grid-cols-2 rounded-2xl bg-white/10 p-1">
+                  <TabsTrigger value="upload" className="rounded-xl data-[state=active]:bg-white data-[state=active]:text-slate-900">Upload PDF</TabsTrigger>
+                  <TabsTrigger value="manual" className="rounded-xl data-[state=active]:bg-white data-[state=active]:text-slate-900">Manual Entry</TabsTrigger>
+                </TabsList>
 
-                <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                  <div className="flex items-start gap-4">
-                    <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/12">
-                      {isUploading ? <Loader2 className="h-6 w-6 animate-spin" /> : <Upload className="h-6 w-6" />}
-                    </div>
-                    <div className="space-y-1">
-                      <div className="text-base font-semibold">Upload a report for AI review</div>
-                      <div className="text-sm text-white/70">Text-based PDF, up to 20MB. Personal identifiers are not shown in the summary cards.</div>
-                      {selectedFileName && <div className="text-xs text-white/70">Current file: {selectedFileName}</div>}
+                <TabsContent value="upload" className="mt-0">
+                  <div
+                    className={`rounded-2xl border border-white/12 bg-white/8 p-5 backdrop-blur transition-all ${dragging ? "border-primary bg-white/14" : "hover:bg-white/10"}`}
+                    onDragOver={(event) => {
+                      event.preventDefault();
+                      setDragging(true);
+                    }}
+                    onDragLeave={() => setDragging(false)}
+                    onDrop={handleDrop}
+                  >
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      className="hidden"
+                      accept=".pdf,application/pdf"
+                      onChange={handleFileSelection}
+                    />
+
+                    <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                      <div className="flex items-start gap-4">
+                        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/12">
+                          {isUploading ? <Loader2 className="h-6 w-6 animate-spin" /> : <Upload className="h-6 w-6" />}
+                        </div>
+                        <div className="space-y-1">
+                          <div className="text-base font-semibold">Upload a report for AI review</div>
+                          <div className="text-sm text-white/70">Text-based PDF, up to 20MB. Personal identifiers are not shown in the summary cards.</div>
+                          {selectedFileName && <div className="text-xs text-white/70">Current file: {selectedFileName}</div>}
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap gap-3">
+                        <Button
+                          className="gap-2 border border-white/10 bg-white text-slate-900 hover:bg-white/90"
+                          disabled={isUploading}
+                          onClick={() => fileInputRef.current?.click()}
+                        >
+                          {isUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                          {isUploading ? "Parsing report..." : "Choose PDF"}
+                        </Button>
+                        {parsedData && parsedData.meta.model !== "manual-entry" && (
+                          <Button
+                            variant="outline"
+                            className="gap-2 border-white/20 bg-white/5 text-white hover:bg-white/10 hover:text-white"
+                            onClick={() => downloadParsedJson(parsedData)}
+                          >
+                            <Download className="h-4 w-4" />
+                            Download JSON
+                          </Button>
+                        )}
+                      </div>
                     </div>
                   </div>
+                </TabsContent>
 
-                  <div className="flex flex-wrap gap-3">
-                    <Button
-                      className="gap-2 border border-white/10 bg-white text-slate-900 hover:bg-white/90"
-                      disabled={isUploading}
-                      onClick={() => fileInputRef.current?.click()}
-                    >
-                      {isUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-                      {isUploading ? "Parsing report..." : "Choose PDF"}
-                    </Button>
-                    {parsedData && (
-                      <Button
-                        variant="outline"
-                        className="gap-2 border-white/20 bg-white/5 text-white hover:bg-white/10 hover:text-white"
-                        onClick={() => downloadParsedJson(parsedData)}
-                      >
-                        <Download className="h-4 w-4" />
-                        Download JSON
+                <TabsContent value="manual" className="mt-0">
+                  <div className="rounded-2xl border border-white/12 bg-white/8 p-5 backdrop-blur">
+                    <div className="mb-4 text-sm text-white/80">
+                      Enter any known health indicators below. Leave unknown fields blank.
+                    </div>
+                    <div className="max-h-[250px] overflow-y-auto pr-3 space-y-3 scrollbar-thin scrollbar-thumb-white/20 scrollbar-track-transparent">
+                      {manualFields.map(field => (
+                        <div key={field.id} className="grid grid-cols-[1fr_120px] gap-4 items-center rounded-xl p-2 hover:bg-white/5">
+                          <div>
+                            <label className="text-sm font-medium text-white/90 block">{field.name}</label>
+                            {field.ref && <span className="text-white/50 text-[10px]">Reference: {field.ref} {field.unit}</span>}
+                          </div>
+                          <div className="relative">
+                            <input 
+                              type="number" 
+                              className="block w-full rounded-lg border border-white/10 bg-white/5 py-1.5 pl-3 pr-8 text-white placeholder:text-white/30 sm:text-sm sm:leading-6 focus:ring-1 focus:ring-primary focus:border-primary focus:bg-white/10 transition-colors" 
+                              placeholder="0.0" 
+                              value={manualData[field.id] || ""} 
+                              onChange={(e) => setManualData({...manualData, [field.id]: e.target.value})} 
+                            />
+                            <div className="absolute inset-y-0 right-0 flex items-center pr-2 pointer-events-none">
+                              <span className="text-white/40 text-[10px] uppercase">{field.unit.split('/')[0]}</span>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <Separator className="my-5 bg-white/10" />
+                    <div className="flex items-center justify-between">
+                      <div className="text-xs text-white/50">
+                        {Object.values(manualData).filter(v => v.trim() !== "").length} field(s) filled
+                      </div>
+                      <Button className="bg-white text-slate-900 hover:bg-white/90" onClick={handleManualSubmit}>
+                        <FileCheck2 className="h-4 w-4 mr-2" />
+                        Submit Entry
                       </Button>
-                    )}
+                    </div>
                   </div>
-                </div>
-              </div>
+                </TabsContent>
+              </Tabs>
 
               <div className="grid gap-3 sm:grid-cols-3">
                 {emptyStateHighlights.map((item) => (
