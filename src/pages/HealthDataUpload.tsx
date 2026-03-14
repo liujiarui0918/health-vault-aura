@@ -183,9 +183,32 @@ const recentUploadPlaceholders = [
 ];
 
 const trimTrailingSlash = (url: string) => url.replace(/\/+$/, "");
-const aiBaseUrl = trimTrailingSlash(import.meta.env.VITE_AI_BASE_URL?.trim() || "https://api.tu-zi.com/v1");
-const aiModel = import.meta.env.VITE_AI_MODEL?.trim() || "doubao-seed-1-6-flash-250828";
-const aiApiKey = import.meta.env.VITE_AI_API_KEY?.trim() || "";
+
+const resolveParseFunctionUrl = () => {
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL?.trim();
+  if (supabaseUrl) {
+    return `${trimTrailingSlash(supabaseUrl)}/functions/v1/parse-health-report`;
+  }
+
+  // In hosted Lovable deployments, same-origin rewrites can route /functions/*.
+  return "/functions/v1/parse-health-report";
+};
+
+const getEdgeFunctionUrls = () => {
+  const urls: string[] = [];
+  const configuredUrl = resolveParseFunctionUrl();
+  urls.push(configuredUrl);
+
+  // Local Supabase default for dev without env configuration.
+  if (typeof window !== "undefined" && ["localhost", "127.0.0.1"].includes(window.location.hostname)) {
+    urls.push("http://127.0.0.1:54321/functions/v1/parse-health-report");
+  }
+
+  return Array.from(new Set(urls));
+};
+
+const apiBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim() ?? "";
+const buildApiUrl = (path: string) => (apiBaseUrl ? `${trimTrailingSlash(apiBaseUrl)}${path}` : path);
 
 const formatStatus = (status: string) => (status ? status.toUpperCase() : "UNKNOWN");
 
@@ -329,6 +352,30 @@ const normalizeParseResponse = (payload: unknown, fallbackFileName: string): Par
       ark_base_url: readString(metaRecord, ["ark_base_url", "arkBaseUrl"]),
     },
   };
+};
+
+const formatApiError = async (response: Response, fallbackLabel: string) => {
+  try {
+    const data = (await response.json()) as { detail?: string; error?: string };
+    if (data.detail) return data.detail;
+    if (data.error) return data.error;
+  } catch {
+    // Ignore JSON parsing errors and fall back to status text.
+  }
+
+  return `${fallbackLabel} failed with status ${response.status}`;
+};
+
+const detectLocalBackendDown = async () => {
+  if (typeof window === "undefined") return false;
+  if (!["localhost", "127.0.0.1"].includes(window.location.hostname)) return false;
+
+  try {
+    const healthResponse = await fetch("http://127.0.0.1:8000/health", { method: "GET" });
+    return !healthResponse.ok;
+  } catch {
+    return true;
+  }
 };
 
 const downloadParsedJson = (data: ParseResponse) => {
@@ -488,78 +535,95 @@ export default function HealthDataUpload() {
       // Safeguard against insanely large extraction
       const textChunk = fullText.slice(0, 30000);
 
-      // 2. Pure frontend API call: browser -> AI endpoint.
-      if (!aiApiKey) {
-        throw new Error("Missing VITE_AI_API_KEY. Please configure frontend environment variables for direct API parsing.");
-      }
-
-      const prompt = `Strictly output in the following JSON format without any additional explanation:
-
-{
-  "fileName": "${file.name}",
-  "contentType": "application/pdf",
-  "indicatorCount": <total number of indicators>,
-  "indicators": [
-    {
-      "id": "<indicator ID in lowercase English, e.g. hba1c>",
-      "name": "<indicator name>",
-      "category": "<category, e.g. Lab Results, Blood Test, Imaging>",
-      "value": "<value>",
-      "unit": "<unit>",
-      "referenceRange": "<reference range>",
-      "status": "<status: normal/high/low/abnormal>",
-      "instrument": "<testing instrument or method>"
-    }
-  ]
-}
-
-Requirements:
-1. Extract all recognizable medical indicators.
-2. indicatorCount must equal indicators.length.
-3. Use empty string "" for missing fields.
-4. If comparison with range is impossible, status should be abnormal or "".
-5. Output JSON only, no markdown.
-6. Keep original Chinese indicator names when source is Chinese.
-7. Prefer categories: Lab Results, Imaging / Reports, Vitals, Conditions & Diagnoses.
-
-PDF content:
-${textChunk}`;
-
-      const aiResponse = await fetch(`${aiBaseUrl}/chat/completions`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${aiApiKey}`,
-        },
-        body: JSON.stringify({
-          model: aiModel,
-          messages: [{ role: "user", content: prompt }],
-          temperature: 0,
-        }),
-      });
-
-      if (!aiResponse.ok) {
-        const responseBody = await aiResponse.text();
-        throw new Error(`AI API failed with status ${aiResponse.status}: ${responseBody || "No response body"}`);
-      }
-
-      const aiPayload = await aiResponse.json();
-      const responseText = aiPayload?.choices?.[0]?.message?.content;
-      if (typeof responseText !== "string" || !responseText.trim()) {
-        throw new Error("AI API returned empty content.");
-      }
-
-      const data = normalizeParseResponse(extractResponsePayload(responseText), file.name);
-      data.meta = {
-        ...data.meta,
-        model: aiModel,
-        char_count: fullText.length,
-        chunk_count: 1,
-        page_count: pdf.numPages,
-        filename: file.name,
-        max_file_size_mb: 20,
-        ark_base_url: aiBaseUrl,
+      // 2. Prefer Supabase Edge Function; fallback to local FastAPI endpoint for local dev.
+      const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim() || "";
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
       };
+
+      if (supabaseAnonKey) {
+        headers.Authorization = `Bearer ${supabaseAnonKey}`;
+        headers.apikey = supabaseAnonKey;
+      }
+
+      let data: ParseResponse | null = null;
+      const edgeErrors: string[] = [];
+
+      for (const functionUrl of getEdgeFunctionUrls()) {
+        try {
+          const aiResponse = await fetch(functionUrl, {
+            method: "POST",
+            headers,
+            body: JSON.stringify({
+              textChunk,
+              fileName: file.name,
+            }),
+          });
+
+          if (!aiResponse.ok) {
+            edgeErrors.push(await formatApiError(aiResponse, "Edge function"));
+            continue;
+          }
+
+          const { responseText, model, baseURL, error } = await aiResponse.json();
+          if (error) {
+            edgeErrors.push(String(error));
+            continue;
+          }
+
+          data = normalizeParseResponse(extractResponsePayload(responseText), file.name);
+          data.meta = {
+            model: model || "unknown",
+            char_count: fullText.length,
+            chunk_count: 1,
+            page_count: pdf.numPages,
+            filename: file.name,
+            max_file_size_mb: 20,
+            ark_base_url: baseURL || "proxy",
+          };
+          break;
+        } catch (edgeError) {
+          if (edgeError instanceof Error) {
+            edgeErrors.push(edgeError.message);
+          } else {
+            edgeErrors.push("Edge function request failed.");
+          }
+        }
+      }
+
+      if (!data) {
+        const formData = new FormData();
+        formData.append("file", file);
+
+        const apiResponse = await fetch(buildApiUrl("/api/health/parse"), {
+          method: "POST",
+          body: formData,
+        });
+
+        if (!apiResponse.ok) {
+          let fallbackError = await formatApiError(apiResponse, "Local API");
+          if (
+            apiResponse.status >= 500 &&
+            fallbackError === `Local API failed with status ${apiResponse.status}` &&
+            (await detectLocalBackendDown())
+          ) {
+            fallbackError =
+              "Local API is unavailable. Start FastAPI on http://127.0.0.1:8000 (Python runtime is required) or configure VITE_SUPABASE_URL for edge parsing.";
+          }
+
+          const edgeHint = edgeErrors.length ? ` Edge attempts: ${edgeErrors.join(" | ")}` : "";
+          throw new Error(`${fallbackError}.${edgeHint}`);
+        }
+
+        const apiPayload = await apiResponse.json();
+        data = normalizeParseResponse(apiPayload, file.name);
+        data.meta = {
+          ...data.meta,
+          page_count: data.meta.page_count || pdf.numPages,
+          filename: data.meta.filename || file.name,
+          max_file_size_mb: data.meta.max_file_size_mb || 20,
+        };
+      }
 
       setParsedData(data);
       setUploadHistory((current) => [
@@ -581,7 +645,7 @@ ${textChunk}`;
 
       let errorMessage = "Unable to parse the selected file.";
       if (error instanceof TypeError) {
-        errorMessage = "Network request failed. The target AI API may block browser CORS or be unreachable.";
+        errorMessage = "Network request failed. Please ensure Supabase Edge Function or local backend /api/health/parse is reachable.";
       } else if (error instanceof Error) {
         errorMessage = error.message;
       }
