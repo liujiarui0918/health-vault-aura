@@ -17,6 +17,8 @@ server/.env
 server/.venv
 server/__pycache__
 server/src/__pycache__
+__pycache__/
+*.pyc
 
 # Editor directories and files
 .vscode/*
