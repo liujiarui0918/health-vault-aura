@@ -1,0 +1,5 @@
+[project]
+name = "health-vault-aura"
+version = "0.1.0"
+description = "Frontend + Python API functions for health-vault-aura"
+requires-python = ">=3.11,<3.13"
